@@ -1,0 +1,75 @@
+---
+title: "Assignment_1_cwood19"
+author: "Chris Wood"
+date: "2026-05-26"
+output: html_document
+---
+
+```{r}
+# Load dataset mtcars
+data(mtcars)
+
+# Convert variables into qualitative variables & display table of data
+mtcars$am <- factor(mtcars$am,
+                    levels = c(0, 1),
+                    labels = c("Automatic", "Manual"))
+
+table(mtcars$am)
+
+mtcars$mpg_group <- cut(mtcars$mpg,
+                        breaks = c(0, 20, 30, 40),
+                        labels = c("Low", "Medium", "High"))
+
+table(mtcars$mpg_group)
+
+# Rename categories
+levels(mtcars$am) <- c("Automatic", "Manual")
+
+# Quantitative variables
+summary(mtcars$mpg)
+summary(mtcars$hp)
+
+# Mean and std deviation
+mean(mtcars$mpg)
+sd(mtcars$mpg)
+
+mean(mtcars$hp)
+sd(mtcars$hp)
+
+# Qualitative variables
+table(mtcars$cyl)
+table(mtcars$am)
+
+# Descriptive stats
+
+# HP : weight ratio
+mtcars$hp_to_weight <- mtcars$hp / mtcars$wt
+
+# MPG category
+mtcars$mpg_category <- ifelse(mtcars$mpg > 20,
+                              "Fuel Efficient",
+                              "Less Efficient")
+
+# Convert to factor
+mtcars$mpg_category <- as.factor(mtcars$mpg_category)
+
+# View transformed variables
+head(mtcars)
+
+#Plot Quantitative Variable
+
+# Histogram of MPG
+hist(mtcars$mpg,
+     main = "Distribution of MPG",
+     xlab = "Miles Per Gallon",
+     col = "lightblue",
+     border = "black")
+
+# Scatterplot of horsepower vs MPG
+plot(mtcars$hp, mtcars$mpg,
+     main = "Horsepower vs MPG",
+     xlab = "Horsepower",
+     ylab = "Miles Per Gallon",
+     pch = 19,
+     col = "red")
+```
