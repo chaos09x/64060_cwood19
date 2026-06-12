@@ -1,0 +1,143 @@
+---
+title: "Assignment_4_cwood19"
+author: "Chris Wood"
+date: "2026-06-11"
+output: pdf_document
+---
+Use k-Means for clustering on financial data gathered on 21 firms in the Pharmaceuticals.csv.
+
+The following variables are recorded: \
+1. Market capitalization (in billions of dollars): Market_Cap,\ 
+2. Beta: Beta, \
+3. Price/earnings ratio: PE_Ratio, \
+4. Return on equity: ROE, \
+5. Return on assets: ROA, \
+6. Asset turnover: Asset_Turnover, \
+7. Leverage: Leverage, \
+8. Estimated revenue growth: Rev_Growth, \
+9. Net profit margin: Net_Profit_Margin, \
+10. Median recommendation (across major brokerages): Median_Recommendation, \
+11. Location of firm’s headquarters: Location, \
+12. Stock exchange on which the firm is listed: Exchange\
+
+```{r}
+
+# Load packages
+library(caret)
+
+# Load dataset 
+rx <- read.csv("Pharmaceuticals.csv")
+
+# Remove unused variables
+rx <- rx[, !(names(rx) %in% c("Symbol", "Name"))]
+
+```
+
+A. Use only the numerical variables (1 to 9) to cluster the 21 firms. Justify the various choices made in conducting the cluster analysis, such as weights for different variables, the specific clustering algorithm(s) used, the number of clusters formed, and so on.
+
+```{r}
+
+# Numerical variables (1-9)
+rx_num <- rx[, c("Market_Cap",
+                 "Beta",
+                 "PE_Ratio",
+                 "ROE",
+                 "ROA",
+                 "Asset_Turnover",
+                 "Leverage",
+                 "Rev_Growth",
+                 "Net_Profit_Margin")]
+
+# Scale variables to avoid any dominating the clustering
+rx_scaled <- scale(rx_num)
+
+# Set seed to produce standardized results
+set.seed(123)
+
+# Utilize Elbow Method to determine number of clusters
+em <- numeric(10)
+
+for(i in 1:10){
+  em[i] <- kmeans(rx_scaled,
+                   centers = i,
+                   nstart = 25)$tot.withinss
+}
+
+# View em plot values
+em
+
+# Plot em
+plot(1:10, em,
+     type = "b",
+     xlab = "Number of Clusters",
+     ylab = "Within-Cluster Sum-of-Squares")
+
+# fit the k-means model (ex: 3 clusters)
+set.seed(123)
+
+km <- kmeans(rx_scaled,
+             centers = 3,
+             nstart = 25)
+
+km
+
+# Label clusters
+rx$Cluster <- factor(km$cluster)
+
+# Examine clusters
+table(rx$Cluster)
+
+```
+
+A) The nine numeric variables utilized measured on different scales (Market cap in billions, Beta < 1, etc.) are standardized / scaled for clustering. K-means clustering has the capacity for grouping observations based on their numerical characteristics. The elbow method is used to evaluate the number of clusters to select (based on diminishing returns after k = 3) and interprets the use of cluster size 4, 11, and 6 firms. 
+
+B. Interpret the clusters with respect to the numerical variables used in forming the clusters.
+
+```{r}
+
+# Calculate cluster centroids
+aggregate(rx_num,
+          by = list(Cluster = rx$Cluster),
+          mean)
+
+```
+
+B) Cluster 1 reveals the largest price to earnings ratio in spite of the low market cap, ROE, and ROA. Cluster 2 boasts the largest market cap and lowest beta; likely an established industry leader. Cluster 3 yields the highest revenue growth potential with its high risk. 
+
+C. Is there a pattern in the clusters with respect to the numerical variables (10 to 12)? (those not used in forming the clusters)
+
+```{r}
+# Generate clusters to view tables based on variable 10, 11, 12
+table(rx$Cluster, rx$Median_Recommendation)
+
+table(rx$Cluster, rx$Location)
+
+table(rx$Cluster, rx$Exchange)
+
+```
+
+C-Recommendation) Cluster 1 is the only cluster to show a strong buy while Cluster 2 & 3 are pushing a moderate sell. Even though Cluster 2 maintains the most valuable firms for market cap, there is a high potential with Cluster 1.
+
+C-Location) Cluster 2 suggests that the largest and most profitable sampled companies are based in the US. Since cluster 3 is pushing to sell and also has the majority based in the US, it may reveal the US having a higher risk-reward market.
+
+C-Exchange) The majority of firms exchange in NYSE regardless of cluster, but those that do not all belong to cluster 3 with high leverage and growth.
+
+D. Provide an appropriate name for each cluster using any or all of the variables in the dataset.
+
+```{r}
+# Show 3 clusters aggregate data
+cluster_summary <- aggregate(rx_num,
+                             by = list(Cluster = rx$Cluster),
+                             mean)
+
+cluster_summary[, -1] <- round(cluster_summary[, -1], 2)
+
+cluster_summary
+
+```
+
+D-Cluster-1) High Value, Small Cap
+
+D-Cluster-2) Stable High Cap
+
+D-Cluster-3) Growth Factor
