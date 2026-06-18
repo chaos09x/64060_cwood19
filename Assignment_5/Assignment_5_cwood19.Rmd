@@ -1,0 +1,243 @@
+---
+title: "Assignment_5_cwood19"
+author: "Chris Wood"
+date: "2026-06-18"
+output: pdf_document
+---
+
+Load libraries and datasets. The dataset Cereals.csv includes nutritional information, store display, and consumer ratings for
+77 breakfast cereals.\ 
+The following fields appear in the set:\
+1. name (datatype: chr)\
+2. mfr (datatype: chr)\
+3. type (datatype: chr)\
+4. calories (datatype: int)\
+5. protein (datatype: int)\
+6. fat (datatype: int)\
+7. sodium (datatype: int)\
+8. fiber (datatype: num)\
+9. carbo (datatype: num)\
+10. sugars (datatype: int)\
+11. potass (datatype: int)\
+12. vitamins (datatype: int)\
+13. shelf (datatype: int)\
+14. weight (datatype: num)\
+15. cups (datatype: num)\
+16. rating (datatype: num)\
+Data Preprocessing: Remove all cereals with missing values.
+
+```{r}
+
+# Load packages
+library(caret)
+library(cluster)
+library(mclust)
+
+# Load dataset 
+cereals <- read.csv("Cereals.csv")
+
+# headers & data type
+# names(cereals)
+# str(cereals)
+
+# Original rows
+# nrow(read.csv("Cereals.csv"))
+
+# Omit incomplete rows
+cereals <- cereals[complete.cases(cereals), ]
+
+# Number removed rows
+# nrow(read.csv("Cereals.csv")) - nrow(cereals)
+
+# Select numeric variables for clustering
+cereal_num <- cereals[, c("calories", "protein", "fat", "sodium",
+                          "fiber", "carbo", "sugars", "potass",
+                          "vitamins", "shelf", "weight", "cups")]
+
+# Normalize variables
+cereal_scaled <- scale(cereal_num)
+
+```
+
+Apply hierarchical clustering to the data using Euclidean distance to the normalized measurements. 
+Use Agnes to compare the clustering from single linkage, complete linkage, average linkage, and Ward. Choose the best method.
+
+```{r}
+# Single linkage
+agnes_single <- agnes(cereal_scaled,
+                      metric = "euclidean",
+                      method = "single")
+
+# Complete linkage
+agnes_complete <- agnes(cereal_scaled,
+                        metric = "euclidean",
+                        method = "complete")
+
+# Average linkage
+agnes_average <- agnes(cereal_scaled,
+                       metric = "euclidean",
+                       method = "average")
+
+# Ward linkage
+agnes_ward <- agnes(cereal_scaled,
+                    metric = "euclidean",
+                    method = "ward")
+
+data.frame(
+  Method = c("Single", "Complete", "Average", "Ward"),
+  AC = c(
+    agnes_single$ac,
+    agnes_complete$ac,
+    agnes_average$ac,
+    agnes_ward$ac
+  )
+)
+
+par(mfrow = c(2,2))
+
+# View data trees
+plot(agnes_single, which.plots = 2, main = "Single Linkage")
+plot(agnes_complete, which.plots = 2, main = "Complete Linkage")
+plot(agnes_average, which.plots = 2, main = "Average Linkage")
+plot(agnes_ward, which.plots = 2, main = "Ward Linkage")
+
+# Agglomerative Coefficients
+ac_values <- c(
+  Single = agnes_single$ac,
+  Complete = agnes_complete$ac,
+  Average = agnes_average$ac,
+  Ward = agnes_ward$ac
+)
+
+# Choose best AC
+ac_values
+which.max(ac_values)
+```
+
+Based on the data clusters, the Ward Linkage AC is significantly higher than all others, showing optimal balanced approach.\
+How many clusters would you choose?
+
+```{r}
+# Plot dendrogram
+plot(agnes_ward, which.plots = 2, main = "Ward Dendrogram")
+
+# Find average silhouette width
+hc <- as.hclust(agnes_ward)
+
+sil_width <- numeric(10)
+
+for (k in 2:10) {
+  clusters <- cutree(hc, k = k)
+  sil <- silhouette(clusters, dist(cereal_scaled))
+  sil_width[k] <- mean(sil[, 3])
+}
+
+sil_width[2:10]
+
+# Find best K
+which.max(sil_width)
+
+# Plot results
+plot(2:10, sil_width[2:10],
+     type = "b",
+     xlab = "Number of Clusters",
+     ylab = "Average Silhouette Width")
+
+```
+
+Comparing the dendrogram with the silhouette results, checking from 2:10, setting K=10 has an optimal width of .3055.\
+Comment on the structure of the clusters and on their stability.\
+Hint: To check stability, partition the data and see how well clusters formed based on one part apply to the other part.\ 
+- Cluster partition A\ 
+- Use the cluster centroids from A to assign each record in partition B (each record is assigned to the cluster with the closest centroid).\ 
+- Assess how consistent the cluster assignments are compared to the assignments based on all the data.
+```{r}
+set.seed(123)
+
+# Create a 50/50 split
+idx <- sample(1:nrow(cereal_scaled),
+              size = floor(0.5 * nrow(cereal_scaled)))
+
+A <- cereal_scaled[idx, ]
+B <- cereal_scaled[-idx, ]
+
+# Cluster partition A
+agnes_A <- agnes(A,
+                 metric = "euclidean",
+                 method = "ward")
+
+hc_A <- as.hclust(agnes_A)
+
+clusters_A <- cutree(hc_A, k = 10)
+
+# Compute centroids for A
+centroids <- aggregate(A,
+                       by = list(cluster = clusters_A),
+                       FUN = mean)
+
+centroids
+
+# Remove the cluster label
+centroid_matrix <- as.matrix(centroids[, -1])
+
+# Assign records in B to centroid
+assign_cluster <- function(x, centroids) {
+  d <- apply(centroids, 1,
+             function(c) sqrt(sum((x - c)^2)))
+  which.min(d)
+}
+
+clusters_B_from_A <- apply(B, 1,
+                           assign_cluster,
+                           centroids = centroid_matrix)
+
+# Compare the clustering
+agnes_full <- agnes(cereal_scaled,
+                    metric = "euclidean",
+                    method = "ward")
+
+hc_full <- as.hclust(agnes_full)
+
+clusters_full <- cutree(hc_full, k = 10)
+
+clusters_B_full <- clusters_full[-idx] 
+
+# Cluster stability
+adjustedRandIndex(clusters_B_from_A,
+                  clusters_B_full)
+```
+
+Viewing 10 clusters with an average silhouette width of .306 indicates toward moderate separation between clusters and an index of .510 leads toward moderate stability and reproducibility. Some boundaries between clusters are not very sharp and contains some small overlapping among clusters, but overall groupings are meaningful.\
+The elementary public schools would like to choose a set of cereals to include in their daily cafeterias. Every day a different cereal is offered, but all cereals should support a healthy diet. For this goal, you are requested to find a cluster of “healthy cereals.”\
+Should the data be normalized? If not, how should they be used in the cluster analysis?
+
+```{r}
+# Create a health score
+# Based on low sugar, sodium, calories
+# Based on high fiber, protein
+centroids <- aggregate(cereal_scaled,
+                       by = list(cluster = clusters_full),
+                       mean)
+
+centroids$health_score <- 
+  (-centroids$sugars) +
+  (-centroids$sodium) +
+  (-centroids$calories) +
+  centroids$fiber +
+  centroids$protein
+
+# Rank clusters best to worst
+centroids[order(centroids$health_score, decreasing = TRUE), ]
+
+# Look for good diversity (5-8)
+table(clusters_full)
+
+# View cereal choices
+# healthy_cluster_id <- centroids$cluster[which.max(centroids$health_score)]
+# Force cluster 8 as chosen cluster
+healthy_cluster_id <- 8
+subset(cereals, clusters_full == healthy_cluster_id)
+
+```
+
+Aiming for a relatively balanced diet, restrictions are placed to choose options that have lower sodium, calories, and sugar while focusing on higher fiber and protein to support fullness, muscle growth, and avoid empty calories. Although cluster 1 and 10 are listed as extreme benefits and choice, cluster 8 is likely the best all-around alternative since it has seven cereals in its cluster and still generally fits the criteria with balanced options compared to the others with very minimal option but high benefit.
