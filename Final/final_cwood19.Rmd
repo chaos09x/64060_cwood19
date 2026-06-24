@@ -1,0 +1,186 @@
+---
+title: "Final"
+author: "Chris Wood"
+date: "2026-06-23"
+output: pdf_document
+---
+
+Clean / prepare data for relevant modeling
+```{r, results = 'hide'}
+
+# Load packages
+library(tidyverse)
+library(caret)
+library(cluster)
+
+set.seed(4827)
+
+# Load dataset
+fuel <- read_csv("monthly_fuel_costs.csv")
+
+# Data overview
+#glimpse(fuel)
+
+# Null percentages
+sapply(
+  fuel[c("mercury_content_ppm",
+         "moisture_content_pct",
+         "chlorine_content_ppm")],
+  function(x) mean(x == "null" | is.na(x)) * 100
+)
+
+# Uniqueness testing
+sapply(fuel, function(x) length(unique(x)))
+
+#table(fuel$data_maturity)
+#table(fuel$fuel_cost_per_mmbtu_source)
+#table(fuel$fuel_type_code_pudl)
+
+# Data cleaning and selecting relevant fields for fuel quality modeling
+fuel_clean <- fuel %>%
+  select(
+    fuel_mmbtu_per_unit,
+    sulfur_content_pct,
+    ash_content_pct,
+    mercury_content_ppm
+  ) %>%
+  
+  # convert "null" strings to NA
+  mutate(
+    mercury_content_ppm = na_if(mercury_content_ppm, "null"),
+    mercury_content_ppm = as.numeric(mercury_content_ppm)
+  )
+
+#glimpse(fuel_clean)
+
+```
+
+Set sampling and clustering
+```{r, results = 'hide'}
+
+fuel_sample <- fuel_clean %>%
+  sample_frac(0.02)
+
+# Median imputation
+median_mercury <- median(fuel_sample$mercury_content_ppm, na.rm = TRUE)
+
+cluster_vars_q <- fuel_sample %>%
+  mutate(
+    mercury_content_ppm = ifelse(
+      is.na(mercury_content_ppm),
+      median_mercury,
+      mercury_content_ppm
+    )
+  ) %>%
+  drop_na()
+
+# Scale variables for normalization
+preProc <- preProcess(cluster_vars_q, method = c("center", "scale"))
+cluster_scaled_q <- predict(preProc, cluster_vars_q)
+
+# Cluster output
+# glimpse(cluster_scaled_q)
+
+```
+
+Run elbow & silhouette methods to view optimal K
+
+Fit the model and summarize
+```{r, results = 'hide'}
+
+# Elbow
+wss <- map_dbl(1:10, function(k) {
+  kmeans(cluster_scaled_q, centers = k, nstart = 20)$tot.withinss
+})
+
+elbow_df <- tibble(
+  k = 1:10,
+  wss = wss
+)
+
+# Silhouette
+sil_width <- map_dbl(2:10, function(k) {
+  km <- kmeans(cluster_scaled_q, centers = k, nstart = 20)
+  
+  ss <- silhouette(km$cluster, dist(cluster_scaled_q))
+  
+  mean(ss[, 3])
+})
+
+sil_df <- tibble(
+  k = 2:10,
+  silhouette = sil_width
+)
+
+ggplot(sil_df, aes(k, silhouette)) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Silhouette Method for Optimal K",
+    x = "Number of clusters (K)",
+    y = "Average silhouette width"
+  )
+
+# Plot elbow curve
+ggplot(elbow_df, aes(x = k, y = wss)) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Elbow Method for Fuel Quality Clustering",
+    x = "Number of clusters (K)",
+    y = "Within-cluster sum of squares"
+  )
+
+k_final <- 4
+
+final_kmeans <- kmeans(cluster_scaled_q, centers = k_final, nstart = 20)
+
+cluster_results <- cluster_vars_q %>%
+  mutate(cluster = final_kmeans$cluster)
+
+# -------------------------
+# 8. Cluster summaries
+# -------------------------
+cluster_results %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean), .groups = "drop")
+
+```
+
+The elbow method would argue that K=4 is where results start to truly produce diminishing returns. Although the elbow method appears like reasonably K=4, the Silhouette analysis indicates that K=5 has a more optimized width before sharply declining at K=6, making K=5 a more stable and real clustering with the highest cohesion and separation. However, K=4 will be a little more stable with less extreme outliers. Less suggests slight under-resolved structures and more looks like over-segmentation.
+
+View detailed profile Centroids
+```{r, results = 'hide'}
+km4 <- kmeans(cluster_scaled_q, centers = 4, nstart = 20)
+
+clustered_data <- cluster_vars_q %>%
+  mutate(cluster = km4$cluster)
+
+cluster_profile <- clustered_data %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    across(
+      where(is.numeric),
+      list(mean = mean, sd = sd),
+      .names = "{col}_{fn}"
+    ),
+    .groups = "drop"
+  )
+
+cluster_profile
+
+km3 <- kmeans(cluster_scaled_q, centers = 3, nstart = 20)
+
+table(
+  K3 = km3$cluster,
+  K4 = km4$cluster
+)
+
+```
+
+Looking at the centroid group's qualities, under K=4, cluster 3 is assuming 77% of the observations and extremely low mean mmbtu. Cluster 2 and 4 are almost identical, with the key difference being their sulfur content seems to define their fuel quality grouping rather than a new fuel type, while Cluster 1 seems to be uniquely off set. The key take-away from these discoveries is that subgroup characterizations show prevalent changes that the silhouette increase alone does not distinguish. 
+
+Going from K=3 to K=4 shown in the cross-section reveals the cluster is defined by environmental distinction rather than random assignment via high mercury content. K=5 may split an existing cluster and increase the silhouette slightly, but one cluster will be divided into two similar clusters. K=4 feels like a reasonable mid-point that yields high sulver/ash (coal), mid-grade coal, gas-like fuel, and mercury-heavy coal. Having full sets of data might prove more useful clusters for future evaluation, but there were many null values to work around mercury, moisture, and chlorine. 
